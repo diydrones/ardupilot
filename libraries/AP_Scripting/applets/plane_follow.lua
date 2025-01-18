@@ -25,7 +25,7 @@
    ZPR_TURN_DEG - if the target is more than this many degrees left or right, assume it's turning
 --]]
 
-SCRIPT_VERSION = "4.6.0-044"
+SCRIPT_VERSION = "4.7.0-047"
 SCRIPT_NAME = "Plane Follow"
 SCRIPT_NAME_SHORT = "PFollow"
 
@@ -34,7 +34,9 @@ ALT_FRAME = { GLOBAL = 0, RELATIVE = 1, TERRAIN = 3}
 
 MAV_SEVERITY = {EMERGENCY=0, ALERT=1, CRITICAL=2, ERROR=3, WARNING=4, NOTICE=5, INFO=6, DEBUG=7}
 MAV_FRAME = {GLOBAL = 0, GLOBAL_RELATIVE_ALT = 3,  GLOBAL_TERRAIN_ALT = 10}
-MAV_CMD_INT = { DO_SET_MODE = 176, DO_CHANGE_SPEED = 178, DO_REPOSITION = 192, 
+MAV_CMD_INT = { ATTITUDE = 30, GLOBAL_POSITION_INT = 33, 
+                  DO_SET_MODE = 176, DO_CHANGE_SPEED = 178, DO_REPOSITION = 192,
+                  CMD_SET_MESSAGE_INTERVAL = 511, CMD_REQUEST_MESSAGE = 512,
                   GUIDED_CHANGE_SPEED = 43000, GUIDED_CHANGE_ALTITUDE = 43001, GUIDED_CHANGE_HEADING = 43002 }
 MAV_SPEED_TYPE = { AIRSPEED = 0, GROUNDSPEED = 1, CLIMB_SPEED = 2, DESCENT_SPEED = 3 }
 MAV_HEADING_TYPE = { COG = 0, HEADING = 1, DEFAULT = 2} -- COG = Course over Ground, i.e. where you want to go, HEADING = which way the vehicle points 
@@ -46,6 +48,8 @@ local windspeed_vector = ahrs:wind_estimate()
 
 local now = millis():tofloat() * 0.001
 local now_target_heading = now
+local now_telemetry_request = now
+local now_follow_lost = now
 local follow_enabled = false
 local too_close_follow_up = 0
 local lost_target_countdown = LOST_TARGET_TIMEOUT
@@ -56,8 +60,6 @@ local tight_turn = false
 
 local PARAM_TABLE_KEY = 120
 local PARAM_TABLE_PREFIX = "ZPF_"
-local PARAM_TABLE_KEY2 = 121
-local PARAM_TABLE_PREFIX2 = "ZPF2_"
 
 -- add a parameter and bind it to a variable
 local function bind_add_param(name, idx, default_value)
@@ -65,15 +67,15 @@ local function bind_add_param(name, idx, default_value)
    return Parameter(PARAM_TABLE_PREFIX .. name)
 end
 -- setup follow mode specific parameters
-assert(param:add_table(PARAM_TABLE_KEY, PARAM_TABLE_PREFIX, 10), 'could not add param table')
+assert(param:add_table(PARAM_TABLE_KEY, PARAM_TABLE_PREFIX, 20), 'could not add param table')
 
 -- add a parameter and bind it to a variable
-local function bind_add_param2(name, idx, default_value)
-   assert(param:add_param(PARAM_TABLE_KEY2, idx, name, default_value), string.format('could not add param %s', name))
-   return Parameter(PARAM_TABLE_PREFIX2 .. name)
-end
+--local function bind_add_param2(name, idx, default_value)
+--   assert(param:add_param(PARAM_TABLE_KEY2, idx, name, default_value), string.format('could not add param %s', name))
+--   return Parameter(PARAM_TABLE_PREFIX2 .. name)
+--end
 -- setup follow mode specific parameters- second tranche
-assert(param:add_table(PARAM_TABLE_KEY2, PARAM_TABLE_PREFIX2, 10), 'could not add param table')
+-- assert(param:add_table(PARAM_TABLE_KEY2, PARAM_TABLE_PREFIX2, 10), 'could not add param table')
 
 -- This uses the exisitng FOLL_* parameters and just adds a couple specific to this script
 -- but because most of the logic is already in AP_Follow (called by binding to follow:) there
@@ -82,12 +84,10 @@ assert(param:add_table(PARAM_TABLE_KEY2, PARAM_TABLE_PREFIX2, 10), 'could not ad
 -- we need these existing FOLL_ parametrs
 FOLL_ALT_TYPE = Parameter('FOLL_ALT_TYPE')
 FOLL_SYSID = Parameter('FOLL_SYSID')
-FOLL_TIMEOUT = Parameter('FOLL_TIMEOUT')
 FOLL_OFS_Y = Parameter('FOLL_OFS_Y')
 local foll_sysid = FOLL_SYSID:get() or -1
 local foll_ofs_y = FOLL_OFS_Y:get() or 0.0
 local foll_alt_type = FOLL_ALT_TYPE:get() or ALT_FRAME.GLOBAL
-local foll_timeout = FOLL_TIMEOUT:get() or 1000
 
 -- Add these ZPF_ parameters specifically for this script
 --[[
@@ -116,8 +116,8 @@ ZPF_ACT_FN = bind_add_param("ACT_FN", 3, 301)
 
 --[[
     // @Param: ZPF_TIMEOUT
-    // @DisplayName: Plane Follow Scripting Timeout
-    // @Description: How long to try re-aquire a target if lost
+    // @DisplayName: Plane Follow Telemetry Timeout
+    // @Description: How long to try reaquire a target if telemetry from the lead vehicle is lost.
     // @Range: 0 30
     // @Units: s
 --]]
@@ -173,7 +173,7 @@ ZPF_ALT_OVR = bind_add_param("ALT_OVR", 9, 0)
     // @Description: P gain for the speed PID controller distance component
     // @Range: 0 1
 --]]
-ZPF2_D_P = bind_add_param2("D_P", 1, 0.3)
+ZPF_D_P = bind_add_param("D_P", 11, 0.3)
 
 --[[
     // @Param: ZPF_D_I
@@ -181,7 +181,7 @@ ZPF2_D_P = bind_add_param2("D_P", 1, 0.3)
     // @Description: I gain for the speed PID  distance component
     // @Range: 0 1
 --]]
-ZPF2_D_I = bind_add_param2("D_I", 2, 0.3)
+ZPF_D_I = bind_add_param("D_I", 12, 0.3)
 
 --[[
     // @Param: ZPF_D_D
@@ -189,7 +189,7 @@ ZPF2_D_I = bind_add_param2("D_I", 2, 0.3)
     // @Description: D gain for the speed PID controller distance component
     // @Range: 0 1
 --]]
-ZPF2_D_D = bind_add_param2("D_D", 3, 0.05)
+ZPF_D_D = bind_add_param("D_D", 13, 0.05)
 
 --[[
     // @Param: ZPF_V_P
@@ -197,7 +197,7 @@ ZPF2_D_D = bind_add_param2("D_D", 3, 0.05)
     // @Description: P gain for the speed PID controller velocity component
     // @Range: 0 1
 --]]
-ZPF2_V_P = bind_add_param2("V_P", 4, 0.3)
+ZPF_V_P = bind_add_param("V_P", 14, 0.3)
 
 --[[
     // @Param: ZPF_V_I
@@ -205,7 +205,7 @@ ZPF2_V_P = bind_add_param2("V_P", 4, 0.3)
     // @Description: I gain for the speed PID controller velocity component
     // @Range: 0 1
 --]]
-ZPF2_V_I = bind_add_param2("V_I", 5, 0.3)
+ZPF_V_I = bind_add_param("V_I", 15, 0.3)
 
 --[[
     // @Param: ZPF_V_D
@@ -213,7 +213,7 @@ ZPF2_V_I = bind_add_param2("V_I", 5, 0.3)
     // @Description: D gain for the speed PID controller velocity component
     // @Range: 0 1
 --]]
-ZPF2_V_D = bind_add_param2("V_D", 6, 0.05)
+ZPF_V_D = bind_add_param("V_D", 16, 0.05)
 
 --[[
     // @Param: ZPF_LkAHD
@@ -221,7 +221,7 @@ ZPF2_V_D = bind_add_param2("V_D", 6, 0.05)
     // @Description: Time to "lookahead" when calculating distance errors
     // @Units: s
 --]]
-ZPF2_LKAHD = bind_add_param2("LKAHD", 7, 5)
+ZPF_LKAHD = bind_add_param("LKAHD", 17, 5)
 
 --[[
     // @Param: ZPF_DIST_FUDGE
@@ -229,7 +229,15 @@ ZPF2_LKAHD = bind_add_param2("LKAHD", 7, 5)
     // @Description: THe distance returned by the AP_FOLLOW library might be off by about this factor of airspeed
     // @Units: s
 --]]
-ZPF2_DIST_FUDGE = bind_add_param2("DIST_FUDGE", 8, 0.92)
+ZPF_DIST_FUDGE = bind_add_param("DIST_FUDGE", 18, 0.92)
+
+--[[
+    // @Param: ZPF_SIM_TELF_FN
+    // @DisplayName: Plane Follow Simulate Telemetry fail function
+    // @Description: Set this switch to simulate losing telemetry from the other vehicle
+    // @Range: 300 307
+--]]
+ZPF_SIM_TELF_FN = bind_add_param("SIM_TELF_FN", 19, 302)
 
 REFRESH_RATE = 0.05   -- in seconds, so 20Hz
 LOST_TARGET_TIMEOUT = (ZPF_TIMEOUT:get() or 10) / REFRESH_RATE
@@ -241,9 +249,11 @@ local exit_mode = ZPF_EXIT_MODE:get() or FLIGHT_MODE.LOITER
 
 local use_wide_turns = ZPF_WIDE_TURNS:get() or 1
 
-local distance_fudge = ZPF2_DIST_FUDGE:get() or 0.92
+local distance_fudge = ZPF_DIST_FUDGE:get() or 0.92
 
-DISTANCE_LOOKAHEAD_SECONDS = ZPF2_LKAHD:get() or 5.0
+DISTANCE_LOOKAHEAD_SECONDS = ZPF_LKAHD:get() or 5.0
+
+local simulate_telemetry_failed = false
 
 AIRSPEED_MIN = Parameter('AIRSPEED_MIN')
 AIRSPEED_MAX = Parameter('AIRSPEED_MAX')
@@ -267,14 +277,14 @@ local function constrain(v, vmin, vmax)
 end
 
 local speedpid = require("speedpid")
-local pid_controller_distance = speedpid.speed_controller(ZPF2_D_P:get() or 0.3,
-                                                            ZPF2_D_I:get() or 0.3,
-                                                            ZPF2_D_D:get() or 0.05,
+local pid_controller_distance = speedpid.speed_controller(ZPF_D_P:get() or 0.3,
+                                                            ZPF_D_I:get() or 0.3,
+                                                            ZPF_D_D:get() or 0.05,
                                                             5.0, airspeed_min - airspeed_max, airspeed_max - airspeed_min)
 
-local pid_controller_velocity = speedpid.speed_controller(ZPF2_V_P:get() or 0.3,
-                                                            ZPF2_V_I:get() or 0.3,
-                                                            ZPF2_V_D:get() or 0.05,
+local pid_controller_velocity = speedpid.speed_controller(ZPF_V_P:get() or 0.3,
+                                                            ZPF_V_I:get() or 0.3,
+                                                            ZPF_V_D:get() or 0.05,
                                                             5.0, airspeed_min, airspeed_max)
 
 
@@ -291,6 +301,107 @@ local function follow_frame_to_mavlink(follow_frame)
    end
    return mavlink_frame
 end
+
+local COMMAND_INT_map = {}
+COMMAND_INT_map.id = 75
+COMMAND_INT_map.fields = {
+             { "param1", "<f" },
+             { "param2", "<f" },
+             { "param3", "<f" },
+             { "param4", "<f" },
+             { "x", "<i4" },
+             { "y", "<i4" },
+             { "z", "<f" },
+             { "command", "<I2" },
+             { "target_system", "<B" },
+             { "target_component", "<B" },
+             { "frame", "<B" },
+             { "current", "<B" },
+             { "autocontinue", "<B" },
+             }
+COMMAND_INT_map[COMMAND_INT_map.id] = "COMMAND_INT"
+
+local function mavlink_encode(msg_map, message)
+   local message_map = msg_map
+
+   local packString = "<"
+   local packedTable = {}
+   local packedIndex = 1
+   for i,v in ipairs(message_map.fields) do
+     if v[3] then
+       packString = (packString .. string.rep(string.sub(v[2], 2), v[3]))
+       for j = 1, v[3] do
+         packedTable[packedIndex] = message[message_map.fields[i][1]][j]
+         if packedTable[packedIndex] == nil then
+           packedTable[packedIndex] = 0
+         end
+         packedIndex = packedIndex + 1
+       end
+     else
+       packString = (packString .. string.sub(v[2], 2))
+       packedTable[packedIndex] = message[message_map.fields[i][1]]
+       packedIndex = packedIndex + 1
+     end
+   end
+   return message_map.id, string.pack(packString, table.unpack(packedTable))
+end 
+
+local mavlink_command_int = require("mavlink_command_int")
+
+-- request another vehicle to send specific mavlink messages at a particular interval
+-- set_message_interval() Parameters
+-- channel = the channel (telemetry link) on this autopilot to send out the request
+-- target.sysid = the target vehicle to request messages from
+-- target.componentid = the target component, defaults to the autopilot
+-- target.message_id = the message id of the requested message
+-- target.interval = the interval in milliseconds for the target vehicle to send message_id messages 
+local function request_message_interval(channel, target)
+   local target_sysid = target.sysid or 0
+   if target_sysid == nil then
+      gcs:send_text(MAV_SEVERITY.ERROR, SCRIPT_NAME_SHORT .. ": request_message_interval no target")
+      return
+   end
+
+   local message = {
+      command = MAV_CMD_INT.CMD_SET_MESSAGE_INTERVAL,
+      param1 = target.message_id, -- request ATTITUDE message
+      param2 = target.interval * 1e3, -- request  interval (in microsecond units)
+      param3 = 0,
+      param4 = 0,
+      x = 0, y = 0, z = 0, 
+      frame = 0, current = 0, autocontinue = 0,
+      -- other params should default to zero
+      target_system = target.sysid,
+      target_component = (target.compoonentid or 0), -- the default to the autopilot
+      confirmation = 0,
+   }
+   --local encoded = mavlink_encode(COMMAND_INT_map, msg_fields)
+   --print(encoded)
+   if not mavlink_command_int.send(channel, message) then
+      gcs:send_text(MAV_SEVERITY.ERROR, SCRIPT_NAME_SHORT .. " oh no the mavlink buffer is full")
+   end
+
+--[[   local request_interval_message {}
+   request_interval_message.timestamp = millis():toint()
+   request_interval_message.param1 = 
+
+   mavlink:send(chan, mavlink_msgs.encode("MSG_NAME", {param1 = value1, param2 = value2, ...}})
+
+   mavlink:send_chan(FOLT_MAV_CHAN:get(), mavlink_msgs.encode("FOLLOW_TARGET", follow_target_msg))
+
+   -- GUIDED_CHANGE_ALTITUDE takes altitude in meters
+   if not gcs:run_command_int(MAV_CMD_INT.CMD_SET_MESSAGE_INTERVAL, {
+                              p1 = target_sysid,
+                              p3 = speed,
+                              z = target.alt }) then
+      gcs:send_text(MAV_SEVERITY.ERROR, SCRIPT_NAME_SHORT .. ": MAVLink CHANGE_ALTITUDE returned false")
+   end
+--]]
+
+---
+---
+end
+
 
 -- set_vehicle_target_altitude() Parameters
 -- target.alt = new target altitude in meters
@@ -393,8 +504,6 @@ local function set_vehicle_target_location(target)
    end
 end
 
-local last_follow_active_state = rc:get_aux_cached(ZPF_ACT_FN:get())
-
 --[[
    return true if we are in a state where follow can apply
 --]]
@@ -423,6 +532,9 @@ end
 --[[
    check for user activating follow using an RC switch set HIGH
 --]]
+local last_follow_active_state = rc:get_aux_cached(ZPF_ACT_FN:get())
+local last_tel_fail_state = rc:get_aux_cached(ZPF_SIM_TELF_FN:get())
+
 local function follow_check()
    if ZPF_ACT_FN == nil then
       return
@@ -455,6 +567,16 @@ local function follow_check()
       end
       -- Don't know what to do with the 3rd switch position right now.
       last_follow_active_state = active_state
+   end
+   local sim_tel_fail = ZPF_SIM_TELF_FN:get()
+   local tel_fail_state = rc:get_aux_cached(sim_tel_fail)
+   if tel_fail_state ~= last_tel_fail_state then
+      if tel_fail_state == 0 then
+         simulate_telemetry_failed = false
+      else
+         simulate_telemetry_failed = true
+      end
+      last_tel_fail_state = tel_fail_state
    end
 end
 
@@ -507,6 +629,14 @@ local function update()
     return
    end
 
+   -- Need to request that the follow vehicle sends telemetry at a reasonable rate
+   -- we send a new request evern 10 seconds, just to make sure the message gets through
+   if (now - now_telemetry_request) > 10 then
+      request_message_interval(0, {sysid = foll_sysid, message_id = MAV_CMD_INT.ATTITUDE, interval = 100})
+      request_message_interval(0, {sysid = foll_sysid, message_id = MAV_CMD_INT.GLOBAL_POSITION_INT, interval = 100})
+      now_telemetry_request = now
+   end
+
    -- set the target frame as per user set parameter - this is fundamental to this working correctly
    local close_distance = ZPF_DIST_CLOSE:get() or airspeed_cruise * 2.0
    local long_distance = close_distance * 4.0
@@ -518,7 +648,7 @@ local function update()
    foll_ofs_y = FOLL_OFS_Y:get() or 0.0
    foll_alt_type = FOLL_ALT_TYPE:get() or ALT_FRAME.GLOBAL
    use_wide_turns = ZPF_WIDE_TURNS:get() or 1
-   distance_fudge = ZPF2_DIST_FUDGE:get() or 0.92
+   distance_fudge = ZPF_DIST_FUDGE:get() or 0.92
 
    --[[
       get the current navigation target. 
@@ -564,23 +694,29 @@ local function update()
    -- if we lose the target wait for LOST_TARGET_TIMEOUT seconds to try to reaquire it
    if target_location == nil or target_location_offset == nil or
       target_velocity == nil or target_velocity_offset == nil or
-      target_distance_offset == nil or current_target == nil or target_distance == nil or xy_dist == nil then
+      target_distance_offset == nil or current_target == nil or target_distance == nil or xy_dist == nil or
+      simulate_telemetry_failed then
       lost_target_countdown = lost_target_countdown - 1
       if lost_target_countdown <= 0 then
          follow_enabled = false
          vehicle:set_mode(fail_mode)
-         gcs:send_text(MAV_SEVERITY.ERROR, SCRIPT_NAME_SHORT .. ": follow: " .. FOLL_SYSID:get() .. " FAILED")
+         gcs:send_text(MAV_SEVERITY.ERROR, SCRIPT_NAME_SHORT .. string.format(": follow: %.0f FAILED", FOLL_SYSID:get()))
          return
       end
 
       -- maintain the current heading until we re-establish telemetry from the target vehicle -- note that this is not logged, needs fixing
-      gcs:send_text(MAV_SEVERITY.ERROR, SCRIPT_NAME_SHORT .. ": follow: lost " .. FOLL_SYSID:get() .. " FAILED hdg: " .. save_target_heading1)
-      set_vehicle_heading({heading = save_target_heading1})
-      set_vehicle_target_altitude({alt = save_target_altitude, frame = foll_alt_type}) -- pass altitude in meters (location has it in cm)
+      -- gcs:send_text(MAV_SEVERITY.WARNING, SCRIPT_NAME_SHORT .. ": follow: lost " .. (now_follow_lost - now) .. " seconds ")
+      if (now - now_follow_lost) > 2 then
+         gcs:send_text(MAV_SEVERITY.WARNING, SCRIPT_NAME_SHORT .. string.format(": follow: lost %.0f set hdg: %.0f", FOLL_SYSID:get(), save_target_heading1))
+         now_follow_lost = now
+         set_vehicle_heading({heading = save_target_heading1})
+         set_vehicle_target_altitude({alt = save_target_altitude, frame = foll_alt_type}) -- pass altitude in meters (location has it in cm)
+      end
       return
    else
       -- have a good target so reset the countdown 
       lost_target_countdown = LOST_TARGET_TIMEOUT
+      now_follow_lost = now
    end
 
    -- target_velocity from MAVLink (via AP_Follow) is groundspeed, need to convert to airspeed, 
@@ -652,7 +788,7 @@ local function update()
    local angle_adjustment
    tight_turn = false
    if target_attitude ~= nil then
-      if (now - target_attitude.timestamp_ms < foll_timeout) and
+      if (now - (target_attitude.timestamp_ms * 0.001) < LOST_TARGET_TIMEOUT) and
          math.abs(target_attitude.roll) > 0.1 or math.abs(target_attitude.rollspeed) > 1 then
          local turn_radius = vehicle_airspeed * vehicle_airspeed / (9.80665 * math.tan(target_attitude.roll + target_attitude.rollspeed))
 
