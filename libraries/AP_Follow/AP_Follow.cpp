@@ -592,7 +592,6 @@ bool AP_Follow::have_target(void) const
 
     // check for timeout
     if ((_last_location_update_ms == 0) || (AP_HAL::millis() - _last_location_update_ms > (uint32_t)_timeout_ms)) {
-        gcs().send_text(MAV_SEVERITY_NOTICE, "location timeout %d", (int)(AP_HAL::millis() - _last_location_update_ms));
         return false;
     }
     return true;
