@@ -388,30 +388,9 @@ local function request_message_interval(channel, target)
    --local encoded = mavlink_encode(COMMAND_INT_map, msg_fields)
    --print(encoded)
    if not mavlink_command_int.send(channel, message) then
-      gcs:send_text(MAV_SEVERITY.ERROR, SCRIPT_NAME_SHORT .. " oh no the mavlink buffer is full")
+      gcs:send_text(MAV_SEVERITY.INFO, SCRIPT_NAME_SHORT .. " MAVLink buffer is full")
    end
-
---[[   local request_interval_message {}
-   request_interval_message.timestamp = millis():toint()
-   request_interval_message.param1 = 
-
-   mavlink:send(chan, mavlink_msgs.encode("MSG_NAME", {param1 = value1, param2 = value2, ...}})
-
-   mavlink:send_chan(FOLT_MAV_CHAN:get(), mavlink_msgs.encode("FOLLOW_TARGET", follow_target_msg))
-
-   -- GUIDED_CHANGE_ALTITUDE takes altitude in meters
-   if not gcs:run_command_int(MAV_CMD_INT.CMD_SET_MESSAGE_INTERVAL, {
-                              p1 = target_sysid,
-                              p3 = speed,
-                              z = target.alt }) then
-      gcs:send_text(MAV_SEVERITY.ERROR, SCRIPT_NAME_SHORT .. ": MAVLink CHANGE_ALTITUDE returned false")
-   end
---]]
-
----
----
 end
-
 
 -- set_vehicle_target_altitude() Parameters
 -- target.alt = new target altitude in meters
@@ -518,6 +497,7 @@ end
    return true if we are in a state where follow can apply
 --]]
 local reported_target = true
+local lost_target_now = now
 local function follow_active()
    local mode = vehicle:get_mode()
 
@@ -525,9 +505,13 @@ local function follow_active()
       if follow_enabled then
         if follow:have_target() then
             reported_target = true
-        else
-            if reported_target then
-               gcs:send_text(MAV_SEVERITY.WARNING, SCRIPT_NAME_SHORT .. ": no target: " .. follow:get_target_sysid())
+            lost_target_now = now
+         else
+            if reported_target then -- i.e. if we previously reported a target but lost it 
+               if (now - lost_target_now) > 5 then
+                  gcs:send_text(MAV_SEVERITY.WARNING, SCRIPT_NAME_SHORT .. ": lost prior target: " .. follow:get_target_sysid())
+                  lost_target_now = now
+               end
             end
             reported_target = false
         end
@@ -636,9 +620,8 @@ local function update()
 
    follow_check()
    if not follow_active() then
-    return
+      return
    end
-
 
    -- set the target frame as per user set parameter - this is fundamental to this working correctly
    local close_distance = ZPF_DIST_CLOSE:get() or airspeed_cruise * 2.0
