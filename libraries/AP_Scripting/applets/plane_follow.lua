@@ -239,6 +239,14 @@ ZPF_DIST_FUDGE = bind_add_param("DIST_FUDGE", 18, 0.92)
 --]]
 ZPF_SIM_TELF_FN = bind_add_param("SIM_TELF_FN", 19, 302)
 
+--[[
+    // @Param: ZPF_SR_CH
+    // @DisplayName: Plane Follow Serial Channel
+    // @Description: This is the serial/channel where mavlink messages will go to the target vehicle
+    // @Range: 0 9
+--]]
+ZPF_SR_CH = bind_add_param("SR_CH", 20, 0)
+
 REFRESH_RATE = 0.05   -- in seconds, so 20Hz
 LOST_TARGET_TIMEOUT = (ZPF_TIMEOUT:get() or 10) / REFRESH_RATE
 OVERSHOOT_ANGLE = ZPF_OVRSHT_DEG:get() or 75.0
@@ -252,6 +260,8 @@ local use_wide_turns = ZPF_WIDE_TURNS:get() or 1
 local distance_fudge = ZPF_DIST_FUDGE:get() or 0.92
 
 DISTANCE_LOOKAHEAD_SECONDS = ZPF_LKAHD:get() or 5.0
+
+local target_serial_channel = ZPF_SR_CH:get() or 0
 
 local simulate_telemetry_failed = false
 
@@ -356,7 +366,7 @@ local mavlink_command_int = require("mavlink_command_int")
 -- target.message_id = the message id of the requested message
 -- target.interval = the interval in milliseconds for the target vehicle to send message_id messages 
 local function request_message_interval(channel, target)
-   local target_sysid = target.sysid or 0
+   local target_sysid = target.sysid or foll_sysid
    if target_sysid == nil then
       gcs:send_text(MAV_SEVERITY.ERROR, SCRIPT_NAME_SHORT .. ": request_message_interval no target")
       return
@@ -629,13 +639,6 @@ local function update()
     return
    end
 
-   -- Need to request that the follow vehicle sends telemetry at a reasonable rate
-   -- we send a new request evern 10 seconds, just to make sure the message gets through
-   if (now - now_telemetry_request) > 10 then
-      request_message_interval(0, {sysid = foll_sysid, message_id = MAV_CMD_INT.ATTITUDE, interval = 100})
-      request_message_interval(0, {sysid = foll_sysid, message_id = MAV_CMD_INT.GLOBAL_POSITION_INT, interval = 100})
-      now_telemetry_request = now
-   end
 
    -- set the target frame as per user set parameter - this is fundamental to this working correctly
    local close_distance = ZPF_DIST_CLOSE:get() or airspeed_cruise * 2.0
@@ -649,12 +652,21 @@ local function update()
    foll_alt_type = FOLL_ALT_TYPE:get() or ALT_FRAME.GLOBAL
    use_wide_turns = ZPF_WIDE_TURNS:get() or 1
    distance_fudge = ZPF_DIST_FUDGE:get() or 0.92
+   target_serial_channel = ZPF_SR_CH:get() or 0
+
+   -- Need to request that the follow vehicle sends telemetry at a reasonable rate
+   -- we send a new request every 10 seconds, just to make sure the message gets through
+   if (now - now_telemetry_request) > 10 then
+      request_message_interval(target_serial_channel, {sysid = foll_sysid, message_id = MAV_CMD_INT.ATTITUDE, interval = 100})
+      request_message_interval(target_serial_channel, {sysid = foll_sysid, message_id = MAV_CMD_INT.GLOBAL_POSITION_INT, interval = 100})
+      now_telemetry_request = now
+   end
 
    --[[
       get the current navigation target. 
    --]]
    local target_location                     -- = Location()     of the target
-   local target_location_offset               -- Location  of the target with FOLL_OFS_* offsets applied
+   local target_location_offset              -- Location  of the target with FOLL_OFS_* offsets applied
    local target_velocity -- = Vector3f()     -- current velocity of lead vehicle
    local target_velocity_offset -- Vector3f  -- velocity to the offset target_location_offset
    local target_distance -- = Vector3f()     -- vector to lead vehicle
@@ -704,7 +716,7 @@ local function update()
          return
       end
 
-      -- maintain the current heading until we re-establish telemetry from the target vehicle -- note that this is not logged, needs fixing
+      -- maintain the current heading until we re-establish telemetry from the target vehicle
       -- gcs:send_text(MAV_SEVERITY.WARNING, SCRIPT_NAME_SHORT .. ": follow: lost " .. (now_follow_lost - now) .. " seconds ")
       if (now - now_follow_lost) > 2 then
          gcs:send_text(MAV_SEVERITY.WARNING, SCRIPT_NAME_SHORT .. string.format(": follow: lost %.0f set hdg: %.0f", FOLL_SYSID:get(), save_target_heading1))
@@ -933,7 +945,7 @@ local function protected_wrapper()
    return protected_wrapper, 1000 * REFRESH_RATE
 end
 
-function delayed_start()
+local function delayed_start()
    gcs:send_text(MAV_SEVERITY.INFO, string.format("%s %s script loaded", SCRIPT_NAME, SCRIPT_VERSION) )
    return protected_wrapper()
 end
