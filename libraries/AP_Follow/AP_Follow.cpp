@@ -146,7 +146,7 @@ const AP_Param::GroupInfo AP_Follow::var_info[] = {
 
     // @Param: _TIMEOUT
     // @DisplayName: Follow timeout
-    // @Description: Follow position estimate timeout after x milliseconds
+    // @Description: Follow position update from lead - timeout after x milliseconds
     // @User: Standard
     // @Units: ms
     AP_GROUPINFO("_TIMEOUT", 12, AP_Follow, _timeout_ms, AP_FOLLOW_TIMEOUT_DEFAULT),
