@@ -19,14 +19,9 @@
 
 local MAVLinkAttitude = {}
 
-MAVLinkAttitude.SCRIPT_VERSION = "4.6.0-004"
+MAVLinkAttitude.SCRIPT_VERSION = "4.7.0-005"
 MAVLinkAttitude.SCRIPT_NAME = "MAVLink Attitude"
 MAVLinkAttitude.SCRIPT_NAME_SHORT = "MAVATT"
-
---[[
-   import mavlink support for NAMED_VALUE_FLOAT, only used for
-   DUAL_AIRCRAFT operation
---]]
 
 ATTITUDE_MESSAGE = "ATTITUDE"
 
