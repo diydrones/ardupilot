@@ -6,6 +6,12 @@
 
 extern const AP_HAL::HAL& hal;
 
+
+void AP_Camera_Servo::init() {
+    SRV_Channels::set_output_scaled(SRV_Channel::k_cam_zoom, 500);
+    SRV_Channels::set_output_scaled(SRV_Channel::k_cam_focus, 500);
+}
+
 // update - should be called at 50hz
 void AP_Camera_Servo::update()
 {
@@ -41,6 +47,31 @@ bool AP_Camera_Servo::trigger_pic()
     trigger_counter = constrain_float(_params.trigger_duration * 50, 0, UINT16_MAX);
 
     return true;
+}
+
+
+bool AP_Camera_Servo::set_zoom(ZoomType zoom_type, float zoom_value) {
+    if (zoom_type == ZoomType::RATE) {
+        // set zoom rate
+        float current_zoom = SRV_Channels::get_output_scaled(SRV_Channel::k_cam_zoom);
+        float new_zoom = current_zoom + zoom_value * 10;
+        SRV_Channels::set_output_scaled(SRV_Channel::k_cam_zoom, new_zoom);
+        return true;
+    }
+    return false;
+}
+
+// set focus specified as rate, percentage or auto
+// focus in = -1, focus hold = 0, focus out = 1
+SetFocusResult AP_Camera_Servo::set_focus(FocusType focus_type, float focus_value) {
+    if (focus_type == FocusType::RATE) {    
+        // set zoom rate
+        const float current_focus = SRV_Channels::get_output_scaled(SRV_Channel::k_cam_focus);
+        const float new_focus = current_focus + focus_value * 10;
+        SRV_Channels::set_output_scaled(SRV_Channel::k_cam_focus, new_focus);
+        return SetFocusResult::ACCEPTED;
+    }
+    return SetFocusResult::UNSUPPORTED;
 }
 
 // configure camera
