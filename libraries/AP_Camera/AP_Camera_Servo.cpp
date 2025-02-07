@@ -52,22 +52,19 @@ bool AP_Camera_Servo::trigger_pic()
 
 bool AP_Camera_Servo::set_zoom(ZoomType zoom_type, float zoom_value) {
     if (zoom_type == ZoomType::RATE) {
-        // set zoom rate
         float current_zoom = SRV_Channels::get_output_scaled(SRV_Channel::k_cam_zoom);
-        float new_zoom = current_zoom + zoom_value * 10;
+        float new_zoom = constrain_float(current_zoom + zoom_value * 10, 0, 1000);
         SRV_Channels::set_output_scaled(SRV_Channel::k_cam_zoom, new_zoom);
         return true;
     }
     return false;
 }
 
-// set focus specified as rate, percentage or auto
-// focus in = -1, focus hold = 0, focus out = 1
+// set focus specified as rate
 SetFocusResult AP_Camera_Servo::set_focus(FocusType focus_type, float focus_value) {
-    if (focus_type == FocusType::RATE) {    
-        // set zoom rate
+    if (focus_type == FocusType::RATE) {
         const float current_focus = SRV_Channels::get_output_scaled(SRV_Channel::k_cam_focus);
-        const float new_focus = current_focus + focus_value * 10;
+        const float new_focus = constrain_float(current_focus + focus_value * 10, 0, 1000);
         SRV_Channels::set_output_scaled(SRV_Channel::k_cam_focus, new_focus);
         return SetFocusResult::ACCEPTED;
     }
