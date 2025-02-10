@@ -1308,8 +1308,14 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @Values: 4:Back, 25:Down, 101:Custom1, 102:Custom2
     // @User: Standard
     AP_GROUPINFO("RNGFND_LND_ORNT", 36, ParametersG2, rangefinder_land_orient, ROTATION_PITCH_270),
+
+    // @Param: RNGFND_LND_DIST
+    // @DisplayName: Rangefinder landing engagement distance
+    // @Description: The distance at which the rangefinder engages for landing. The default value of 0 enables the rangefinder as soon as it is in range. Values between 0 and RNGFNDx_MAX can be used to activate the rangefinder at a shorter distance for landing, while still allowing it to measure up to its maximum distance for other purposes.
+    // @User: Standard
+    AP_GROUPINFO("RNGFND_LND_DIST", 37, ParametersG2, rangefinder_land_engagement_distance, 0),
 #endif
-    
+
     AP_GROUPEND
 };
 
