@@ -728,9 +728,17 @@ void Plane::rangefinder_height_update(void)
                 flightstage_good_for_rangefinder_landing = true;
             }
 #endif
+
+            // Check if the measured distance is within the RNGFND_LND_DIST
+            // engagement distance
+            bool is_within_engagement_distance =
+                (g2.rangefinder_land_engagement_distance <= 0) ||
+                (corrected_distance <= g2.rangefinder_land_engagement_distance);
+
             if (!rangefinder_state.in_use &&
                 flightstage_good_for_rangefinder_landing &&
-                g.rangefinder_landing) {
+                g.rangefinder_landing &&
+                is_within_engagement_distance) {
                 rangefinder_state.in_use = true;
                 gcs().send_text(MAV_SEVERITY_INFO, "Rangefinder engaged at %.2fm", (double)rangefinder_state.height_estimate);
             }
