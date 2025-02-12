@@ -38,7 +38,7 @@ public:
         MS5525_ADDR_AUTO = 255, // does not need to be 255, just needs to be out of the address array
     };
 
-    AP_Airspeed_MS5525(AP_Airspeed &frontend, uint8_t _instance, MS5525_ADDR address);
+    AP_Airspeed_MS5525(AP_Airspeed &frontend, class AP_Airspeed::airspeed_state &state, class AP_Airspeed_Params &params, MS5525_ADDR address);
     ~AP_Airspeed_MS5525(void) {}
     
     // probe and initialise the sensor

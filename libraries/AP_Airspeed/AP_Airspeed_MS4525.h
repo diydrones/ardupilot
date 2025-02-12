@@ -32,7 +32,8 @@
 class AP_Airspeed_MS4525 : public AP_Airspeed_Backend
 {
 public:
-    AP_Airspeed_MS4525(AP_Airspeed &frontend, uint8_t _instance);
+
+    using AP_Airspeed_Backend::AP_Airspeed_Backend;
     ~AP_Airspeed_MS4525(void) {}
     
     // probe and initialise the sensor

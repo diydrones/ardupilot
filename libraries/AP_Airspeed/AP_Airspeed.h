@@ -245,7 +245,10 @@ private:
 
     CalibrationState calibration_state[AIRSPEED_MAX_SENSORS];
 
+public:
     struct airspeed_state {
+        uint8_t instance;
+        float   raw_pressure;
         float   raw_airspeed;
         float   airspeed;
         float	last_pressure;
@@ -280,7 +283,11 @@ private:
 #if AP_AIRSPEED_HYGROMETER_ENABLE
         uint32_t last_hygrometer_log_ms;
 #endif
-    } state[AIRSPEED_MAX_SENSORS];
+    };
+
+private:
+
+    airspeed_state state[AIRSPEED_MAX_SENSORS];
 
     bool calibration_enabled;
 
@@ -293,39 +300,9 @@ private:
 
     uint32_t _log_bit = -1;     // stores which bit in LOG_BITMASK is used to indicate we should log airspeed readings
 
-    void read(uint8_t i);
-    // return the differential pressure in Pascal for the last airspeed reading for the requested instance
-    // returns 0 if the sensor is not enabled
-    float get_pressure(uint8_t i);
-
-    // get the health probability
-    float get_health_probability(uint8_t i) const {
-        return state[i].failures.health_probability;
-    }
-    float get_health_probability(void) const {
-        return get_health_probability(primary);
-    }
-
-    // get the consistency test ratio
-    float get_test_ratio(uint8_t i) const {
-        return state[i].failures.test_ratio;
-    }
-    float get_test_ratio(void) const {
-        return get_test_ratio(primary);
-    }
-
     void update_calibration(uint8_t i, float raw_pressure);
     void update_calibration(uint8_t i, const Vector3f &vground, int16_t max_airspeed_allowed_during_cal);
     void send_airspeed_calibration(const Vector3f &vg);
-    // return the current calibration offset
-    float get_offset(uint8_t i) const {
-#ifndef HAL_BUILD_AP_PERIPH
-        return param[i].offset;
-#else
-        return 0.0;
-#endif
-    }
-    float get_offset(void) const { return get_offset(primary); }
 
     void check_sensor_failures();
     void check_sensor_ahrs_wind_max_failures(uint8_t i);
