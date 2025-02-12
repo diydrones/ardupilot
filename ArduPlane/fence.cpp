@@ -42,6 +42,7 @@ void Plane::fence_check()
             case AC_FENCE_ACTION_GUIDED:
             case AC_FENCE_ACTION_GUIDED_THROTTLE_PASS:
             case AC_FENCE_ACTION_RTL_AND_LAND:
+            case AC_FENCE_ACTION_AUTOLAND_OR_RTL:
                 if (plane.control_mode_reason == ModeReason::FENCE_BREACHED &&
                     control_mode->is_guided_mode()) {
                     set_mode(*previous_mode, ModeReason::FENCE_RETURN_PREVIOUS_MODE);
@@ -80,6 +81,13 @@ void Plane::fence_check()
         switch (fence_act) {
         case AC_FENCE_ACTION_REPORT_ONLY:
             break;
+#if MODE_AUTOLAND_ENABLED
+        case AC_FENCE_ACTION_AUTOLAND_OR_RTL:
+            if (!set_mode(mode_autoland, ModeReason::FENCE_BREACHED)) {
+                set_mode(mode_rtl, ModeReason::FENCE_BREACHED);
+            }
+            break;
+#endif
         case AC_FENCE_ACTION_GUIDED:
         case AC_FENCE_ACTION_GUIDED_THROTTLE_PASS:
         case AC_FENCE_ACTION_RTL_AND_LAND:
