@@ -206,7 +206,8 @@ void AP_Periph_FW::sim_update_actuator(uint8_t actuator_id)
         }
         const SRV_Channel::Function function = SRV_Channel::Function(SRV_Channel::k_rcin1 + i);
         uavcan_equipment_actuator_Status pkt {};
-        pkt.actuator_id = i;
+        // This seems to match real servos, although I would have expected it to be zero indexed
+        pkt.actuator_id = i + 1;
         // assume 45 degree angle for simulation
         pkt.position = radians(SRV_Channels::get_output_norm(function) * 45);
         pkt.force = 0;
