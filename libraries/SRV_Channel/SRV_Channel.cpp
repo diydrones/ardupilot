@@ -162,6 +162,7 @@ const AP_Param::GroupInfo SRV_Channel::var_info[] = {
     // @Values{Plane, Copter}: 168:Motor21,169:Motor22,170:Motor23,171:Motor24
     // @Values{Plane, Copter}: 172:Motor25,173:Motor26,174:Motor27,175:Motor28
     // @Values{Plane, Copter}: 176:Motor29,177:Motor30,178:Motor31,179:Motor32
+    // @Values{Sub}: 180: Actuator1,181: Actuator2,182: Actuator3,183: Actuator4,184: Actuator5
     // @User: Standard
     // @RebootRequired: True
     AP_GROUPINFO("FUNCTION",  5, SRV_Channel, function, 0),

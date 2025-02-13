@@ -209,6 +209,11 @@ public:
         k_motor30               = 177,
         k_motor31               = 178,
         k_motor32               = 179,
+        k_actuator1             = 180,   // Aux channels used for controlling user peripherals
+        k_actuator2             = 181,
+        k_actuator3             = 182,
+        k_actuator4             = 183,
+        k_actuator5             = 184,
         k_nr_aux_servo_functions         ///< This must be the last enum value (only add new values _before_ this one)
     } Function;
 
