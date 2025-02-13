@@ -29,11 +29,19 @@ public:
     // Constructor
     using AP_Camera_Backend::AP_Camera_Backend;
 
+    void init() override;
     /* Do not allow copies */
     CLASS_NO_COPY(AP_Camera_Servo);
 
     // update - should be called at 50hz
     void update() override;
+
+    // set zoom specified as a rate or percentage
+    bool set_zoom(ZoomType zoom_type, float zoom_value) override;
+
+    // set focus specified as rate, percentage or auto
+    // focus in = -1, focus hold = 0, focus out = 1
+    SetFocusResult set_focus(FocusType focus_type, float focus_value) override;
 
     // entry point to actually take a picture.  returns true on success
     bool trigger_pic() override;
