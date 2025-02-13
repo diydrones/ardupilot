@@ -175,7 +175,7 @@ bool ModeAutoLand::_enter()
     entry_alt = plane.current_loc.alt;
     
     // start first leg toward the base leg loiter to alt point
-    if (climb_first) {
+    if (climb_first && plane.control_mode_reason != ModeReason::BATTERY_FAILSAFE) {
         stage = AutoLandStage::CLIMB;
         plane.start_command(cmd_climb);
 
