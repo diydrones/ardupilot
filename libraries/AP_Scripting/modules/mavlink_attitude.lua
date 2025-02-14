@@ -105,8 +105,8 @@ function MAVLinkAttitude.mavlink_attitude_receiver()
     local mavlink_msgs = require("mavlink_msgs")
     local jitter_correction = MAVLinkAttitude.JitterCorrection(5000, 100)
 
-    -- initialise mavlink rx with number of messages, and buffer depth
-    mavlink.init(1, 10)
+    -- initialise mavlink rx with  buffer depth and number of messages
+    mavlink.init(10, 1)
 
     -- register message id to receive
     --mavlink.register_rx_msgid(ATTITUDE_msgid)

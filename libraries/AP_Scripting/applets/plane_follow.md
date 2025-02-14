@@ -18,8 +18,7 @@ and ==must be different== from the MAVLINK_SYSID of the following plane.
 
 The script adds the following parameters to control it's behaviour. It uses 
 the existing FOLL parameters that are used for the Copter FOLLOW mode. In addition
-the following "ZPF" parameters are added: Z = scripting, P = Plane, F = Follow, in two
-banks ZPF and ZPF2.
+the following "ZPF" parameters are added: Z = scripting, P = Plane, F = Follow.
 
 ## ZPF_FAIL_MODE
 
@@ -67,55 +66,55 @@ The follow logic can have the follow vehicle track the altitude of the target, b
 in ZPF_ALT_OVR allows the follow vehicle to follow at a fixed altitude regardless of the altitude
 of the target. The ZPF_ALT_OVR is in meters in FOLL_ALT_TYPE frame. 
 
-## ZPF2_D_P
+## ZPF_D_P
 
 The follow logic uses two PID controllers for controlling speed, the first uses distance (D) 
 as the error. This is the P gain for the "D" PID controller.
 
-## ZPF2_D_I
+## ZPF_D_I
 
 The follow logic uses two PID controllers for controlling speed, the first uses distance (D) 
 as the error. This is the I gain for the "D" PID controller.
 
-## ZPF2_D_D
+## ZPF_D_D
 
 The follow logic uses two PID controllers for controlling speed, the first uses distance (D) 
 as the error. This is the D gain for the "D" PID controller.
 
-## ZPF2_V_P
+## ZPF_V_P
 
 The follow logic uses two PID controllers for controlling speed, the first uses velocity (V) 
 as the error. This is the P gain for the "V" PID controller.
 
-## ZPF2_V_I
+## ZPF_V_I
 
 The follow logic uses two PID controllers for controlling speed, the first uses distance (V) 
 as the error. This is the I gain for the "V" PID controller.
 
-## ZPF2_V_D
+## ZPF_V_D
 
 The follow logic uses two PID controllers for controlling speed, the first uses distance (V) 
 as the error. This is the D gain for the "V" PID controller.
 
-## ZPF2_LKAHD
+## ZPF_LKAHD
 
 Time to "lookahead" when calculating distance errors.
 
-## ZPF2_DIST_FUDGE
+## ZPF_DIST_FUDGE
 
 This parameter might be a bad idea, but it seems the xy_distance between the target offset location
 and the follow vehicle returned by AP_Follow appears to be off by a factor of 
-airspeed * a fudge factor
+`airspeed * a fudge factor`
 This allows this fudge factor to be adjusted until a better solution can be found for this problem.
 
 # Operation
-Enable Lua scripting by setting SCR_ENABLE = 1 on the FOLLOW plane.
+Enable Lua scripting by setting `SCR_ENABLE = 1` on the FOLLOW plane.
 
 Install the lua script in the APM/scripts directory on the flight
 controller's microSD card on the FOLLOW plane. 
 
 Install the speedpid.lua, mavlink_attitude.lua and mavlink_msgs.lua files
-in the APM/scripts/modules directory on the SD card on the FOLLOW plane.
+in the `APM/scripts/modules` directory on the SD card on the FOLLOW plane.
 
 No scripts are required on the target plane.
 
@@ -134,10 +133,19 @@ will use when calculating the target altitude. See the definitions of these
 parameters to understand how they work. ZPF2_ALT_OVR will override the operation of FOLL_OFS_Z
 setting a fixed altitude for the following plane in FOLL_ALT_TYPE frame.
 
-To ensure the follow plane gets timely updates from the target, the SRx_EXT_STAT and SRx_EXTRA1
+The existing FOLL_YAW_BEHAVE and FOLL_POS_P parameters are ignored by Plane Follow.
+
+To ensure the follow plane gets timely updates from the target, the SRx_POSITION and SRx_EXTRA1
 telemetry stream rate parameters should be increased to increase the rate that the POSITION_TARGET_GLOBAL_INT
 and ATTITUDE mavlink messages are sent. The default value is 4Hz, a good value is probably 8Hz or 10Hz but 
 some testing should be done to confirm the best rate for your telemetry radios and vehicles.
 
-Ideally the connection is direct plane-to-plane and not routing via a Ground Control Station. This has been tested with 2x HolyBro SiK telemetry radios, one in each plane. RFD900 radios should work and LTE or Starlink connections will probably work well, but haven't been tested. Fast telemetry updates from the target to the following plane will give the best
-results.
+To prevent Mission Planner, QGC, MAVproxy or any other ground control station connected to your plane
+from requesting a different stream rate, also set SERIALx_OPTIONS bit 12 for the matching serial port. 
+
+For example if your telemetry radio is connected to Telem1 = SERIAL1 then set
+SERIAL1_OPTIONS = 
+SR1_POSITION = 10
+SR1_EXTRA1 = 10
+
+Ideally the connection is direct plane-to-plane and not routed via a Ground Control Station. This has been tested with 2x HolyBro SiK telemetry radios, one in each plane. RFD900 radios might work and LTE or other IP radio based connections will probably work well, but haven't been tested. Fast telemetry updates from the target to the following plane will give the best results.

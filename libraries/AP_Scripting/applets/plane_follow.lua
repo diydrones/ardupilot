@@ -25,7 +25,7 @@
    ZPR_TURN_DEG - if the target is more than this many degrees left or right, assume it's turning
 --]]
 
-SCRIPT_VERSION = "4.7.0-047"
+SCRIPT_VERSION = "4.7.0-050"
 SCRIPT_NAME = "Plane Follow"
 SCRIPT_NAME_SHORT = "PFollow"
 
@@ -34,12 +34,15 @@ ALT_FRAME = { GLOBAL = 0, RELATIVE = 1, TERRAIN = 3}
 
 MAV_SEVERITY = {EMERGENCY=0, ALERT=1, CRITICAL=2, ERROR=3, WARNING=4, NOTICE=5, INFO=6, DEBUG=7}
 MAV_FRAME = {GLOBAL = 0, GLOBAL_RELATIVE_ALT = 3,  GLOBAL_TERRAIN_ALT = 10}
-MAV_CMD_INT = { ATTITUDE = 30, GLOBAL_POSITION_INT = 33, 
+MAV_CMD_INT = { ATTITUDE = 30, GLOBAL_POSITION_INT = 33, REQUEST_DATA_STREAM = 66,
                   DO_SET_MODE = 176, DO_CHANGE_SPEED = 178, DO_REPOSITION = 192,
                   CMD_SET_MESSAGE_INTERVAL = 511, CMD_REQUEST_MESSAGE = 512,
                   GUIDED_CHANGE_SPEED = 43000, GUIDED_CHANGE_ALTITUDE = 43001, GUIDED_CHANGE_HEADING = 43002 }
 MAV_SPEED_TYPE = { AIRSPEED = 0, GROUNDSPEED = 1, CLIMB_SPEED = 2, DESCENT_SPEED = 3 }
 MAV_HEADING_TYPE = { COG = 0, HEADING = 1, DEFAULT = 2} -- COG = Course over Ground, i.e. where you want to go, HEADING = which way the vehicle points 
+
+MAV_DATA_STREAM = { MAV_DATA_STREAM_ALL=0, MAV_DATA_STREAM_RAW_SENSORS=1, MAV_DATA_STREAM_EXTENDED_STATUS=2, MAV_DATA_STREAM_RC_CHANNELS=3,
+                     MAV_DATA_STREAM_RAW_CONTROLLER=4, MAV_DATA_STREAM_POSITION=6, MAV_DATA_STREAM_EXTRA1=10, MAV_DATA_STREAM_EXTRA2=11 }
 
 FLIGHT_MODE = {AUTO=10, RTL=11, LOITER=12, GUIDED=15, QHOVER=18, QLOITER=19, QRTL=21}
 
@@ -52,7 +55,6 @@ local now_telemetry_request = now
 local now_follow_lost = now
 local follow_enabled = false
 local too_close_follow_up = 0
-local lost_target_countdown = LOST_TARGET_TIMEOUT
 local save_target_heading1 = -400.0
 local save_target_heading2 = -400.0
 local save_target_altitude
@@ -67,7 +69,7 @@ local function bind_add_param(name, idx, default_value)
    return Parameter(PARAM_TABLE_PREFIX .. name)
 end
 -- setup follow mode specific parameters
-assert(param:add_table(PARAM_TABLE_KEY, PARAM_TABLE_PREFIX, 20), 'could not add param table')
+assert(param:add_table(PARAM_TABLE_KEY, PARAM_TABLE_PREFIX, 25), 'could not add param table')
 
 -- add a parameter and bind it to a variable
 --local function bind_add_param2(name, idx, default_value)
@@ -241,16 +243,28 @@ ZPF_SIM_TELF_FN = bind_add_param("SIM_TELF_FN", 19, 302)
 
 --[[
     // @Param: ZPF_SR_CH
-    // @DisplayName: Plane Follow Serial Channel
+    // @DisplayName: Plane Follow Stream Rate Serial Channel
     // @Description: This is the serial/channel where mavlink messages will go to the target vehicle
     // @Range: 0 9
 --]]
 ZPF_SR_CH = bind_add_param("SR_CH", 20, 0)
 
+--[[
+    // @Param: ZPF_SR_INT
+    // @DisplayName: Plane Follow Stream Rate Interval
+    // @Description: This is the stream rate that the chase plane will request from the lead plane for GLOBAL_POSITION_INT and ATTITUDE telemetry 
+    // @Range: 25 500
+    // @Units: ms
+--]]
+ZPF_SR_INT = bind_add_param("SR_INT", 21, 50)
+
 REFRESH_RATE = 0.05   -- in seconds, so 20Hz
 LOST_TARGET_TIMEOUT = (ZPF_TIMEOUT:get() or 10) / REFRESH_RATE
 OVERSHOOT_ANGLE = ZPF_OVRSHT_DEG:get() or 75.0
 TURNING_ANGLE = ZPF_TURN_DEG:get() or 20.0
+DISTANCE_LOOKAHEAD_SECONDS = ZPF_LKAHD:get() or 5.0
+
+local lost_target_countdown = LOST_TARGET_TIMEOUT
 
 local fail_mode = ZPF_FAIL_MODE:get() or FLIGHT_MODE.QRTL
 local exit_mode = ZPF_EXIT_MODE:get() or FLIGHT_MODE.LOITER
@@ -258,8 +272,6 @@ local exit_mode = ZPF_EXIT_MODE:get() or FLIGHT_MODE.LOITER
 local use_wide_turns = ZPF_WIDE_TURNS:get() or 1
 
 local distance_fudge = ZPF_DIST_FUDGE:get() or 0.92
-
-DISTANCE_LOOKAHEAD_SECONDS = ZPF_LKAHD:get() or 5.0
 
 local target_serial_channel = ZPF_SR_CH:get() or 0
 
@@ -312,85 +324,7 @@ local function follow_frame_to_mavlink(follow_frame)
    return mavlink_frame
 end
 
-local COMMAND_INT_map = {}
-COMMAND_INT_map.id = 75
-COMMAND_INT_map.fields = {
-             { "param1", "<f" },
-             { "param2", "<f" },
-             { "param3", "<f" },
-             { "param4", "<f" },
-             { "x", "<i4" },
-             { "y", "<i4" },
-             { "z", "<f" },
-             { "command", "<I2" },
-             { "target_system", "<B" },
-             { "target_component", "<B" },
-             { "frame", "<B" },
-             { "current", "<B" },
-             { "autocontinue", "<B" },
-             }
-COMMAND_INT_map[COMMAND_INT_map.id] = "COMMAND_INT"
-
-local function mavlink_encode(msg_map, message)
-   local message_map = msg_map
-
-   local packString = "<"
-   local packedTable = {}
-   local packedIndex = 1
-   for i,v in ipairs(message_map.fields) do
-     if v[3] then
-       packString = (packString .. string.rep(string.sub(v[2], 2), v[3]))
-       for j = 1, v[3] do
-         packedTable[packedIndex] = message[message_map.fields[i][1]][j]
-         if packedTable[packedIndex] == nil then
-           packedTable[packedIndex] = 0
-         end
-         packedIndex = packedIndex + 1
-       end
-     else
-       packString = (packString .. string.sub(v[2], 2))
-       packedTable[packedIndex] = message[message_map.fields[i][1]]
-       packedIndex = packedIndex + 1
-     end
-   end
-   return message_map.id, string.pack(packString, table.unpack(packedTable))
-end 
-
 local mavlink_command_int = require("mavlink_command_int")
-
--- request another vehicle to send specific mavlink messages at a particular interval
--- set_message_interval() Parameters
--- channel = the channel (telemetry link) on this autopilot to send out the request
--- target.sysid = the target vehicle to request messages from
--- target.componentid = the target component, defaults to the autopilot
--- target.message_id = the message id of the requested message
--- target.interval = the interval in milliseconds for the target vehicle to send message_id messages 
-local function request_message_interval(channel, target)
-   local target_sysid = target.sysid or foll_sysid
-   if target_sysid == nil then
-      gcs:send_text(MAV_SEVERITY.ERROR, SCRIPT_NAME_SHORT .. ": request_message_interval no target")
-      return
-   end
-
-   local message = {
-      command = MAV_CMD_INT.CMD_SET_MESSAGE_INTERVAL,
-      param1 = target.message_id, -- request ATTITUDE message
-      param2 = target.interval * 1e3, -- request  interval (in microsecond units)
-      param3 = 0,
-      param4 = 0,
-      x = 0, y = 0, z = 0, 
-      frame = 0, current = 0, autocontinue = 0,
-      -- other params should default to zero
-      target_system = target.sysid,
-      target_component = (target.compoonentid or 0), -- the default to the autopilot
-      confirmation = 0,
-   }
-   --local encoded = mavlink_encode(COMMAND_INT_map, msg_fields)
-   --print(encoded)
-   if not mavlink_command_int.send(channel, message) then
-      gcs:send_text(MAV_SEVERITY.INFO, SCRIPT_NAME_SHORT .. " MAVLink buffer is full")
-   end
-end
 
 -- set_vehicle_target_altitude() Parameters
 -- target.alt = new target altitude in meters
@@ -507,7 +441,7 @@ local function follow_active()
             reported_target = true
             lost_target_now = now
          else
-            if reported_target then -- i.e. if we previously reported a target but lost it 
+            if reported_target then -- i.e. if we previously reported a target but lost it
                if (now - lost_target_now) > 5 then
                   gcs:send_text(MAV_SEVERITY.WARNING, SCRIPT_NAME_SHORT .. ": lost prior target: " .. follow:get_target_sysid())
                   lost_target_now = now
@@ -640,8 +574,10 @@ local function update()
    -- Need to request that the follow vehicle sends telemetry at a reasonable rate
    -- we send a new request every 10 seconds, just to make sure the message gets through
    if (now - now_telemetry_request) > 10 then
-      request_message_interval(target_serial_channel, {sysid = foll_sysid, message_id = MAV_CMD_INT.ATTITUDE, interval = 100})
-      request_message_interval(target_serial_channel, {sysid = foll_sysid, message_id = MAV_CMD_INT.GLOBAL_POSITION_INT, interval = 100})
+      local stream_interval = ZPF_SR_INT:get() or 50
+      -- we'd like to get GLOGALOOSITION_INT and ATTITUDE messages from the target vehicle at 20Hz = every 50ms
+      mavlink_command_int.request_message_interval(target_serial_channel, {sysid = foll_sysid, message_id = MAV_CMD_INT.ATTITUDE, interval_ms = stream_interval})
+      mavlink_command_int.request_message_interval(target_serial_channel, {sysid = foll_sysid, message_id = MAV_CMD_INT.GLO, interval_ms = stream_interval})
       now_telemetry_request = now
    end
 
@@ -764,7 +700,7 @@ local function update()
 
    -- if the target vehicle is starting to roll we need to pre-empt a turn is coming
    -- this is fairly simplistic and could probably be improved
-   -- got the code from Mission Planner - this is how it calculates the turn radius
+   -- got the code from Mission Planner - this is how it calculates the turn radius in c#
    --[[
    public float radius
         {
@@ -935,7 +871,11 @@ end
 
 -- start running update loop - waiting 20s for the AP to initialize
 if FWVersion:type() == 3 then
-   return delayed_start, 20000
+   if arming:is_armed() then
+      return delayed_start, 1000
+   else
+      return delayed_start, 20000
+   end
 else
    gcs:send_text(MAV_SEVERITY.ERROR, string.format("%s: must run on Plane", SCRIPT_NAME_SHORT))
 end
