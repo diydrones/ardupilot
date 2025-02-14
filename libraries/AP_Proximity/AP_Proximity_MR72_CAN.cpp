@@ -14,7 +14,7 @@
  */
 #include "AP_Proximity_config.h"
 
-#if AP_PROXIMITY_MR72_ENABLED
+#if AP_PROXIMITY_MR72_ENABLED || AP_PROXIMITY_HEXSOONRADAR_ENABLED
 
 #include <AP_HAL/AP_HAL.h>
 #include <AP_BoardConfig/AP_BoardConfig.h>
@@ -34,10 +34,13 @@ const AP_Param::GroupInfo AP_Proximity_MR72_CAN::var_info[] = {
 
 AP_Proximity_MR72_CAN::AP_Proximity_MR72_CAN(AP_Proximity &_frontend,
                                      AP_Proximity::Proximity_State &_state,
-                                     AP_Proximity_Params& _params):
+                                     AP_Proximity_Params& _params,
+                                     Manufacturer manufacture):
     AP_Proximity_Backend(_frontend, _state, _params)
 {
-    multican_MR72 = NEW_NOTHROW MultiCAN{FUNCTOR_BIND_MEMBER(&AP_Proximity_MR72_CAN::handle_frame, bool, AP_HAL::CANFrame &), AP_CAN::Protocol::NanoRadar, "MR72 MultiCAN"};
+    // determine CAN protocol based on manufacturer
+    AP_CAN::Protocol can_protocol = manufacture == Manufacturer::NanoRadar ? AP_CAN::Protocol::NanoRadar : AP_CAN::Protocol::Hexsoon;
+    multican_MR72 = NEW_NOTHROW MultiCAN{FUNCTOR_BIND_MEMBER(&AP_Proximity_MR72_CAN::handle_frame, bool, AP_HAL::CANFrame &), can_protocol, "MR72 MultiCAN"};
     if (multican_MR72 == nullptr) {
         AP_BoardConfig::allocation_error("Failed to create proximity multican");
     }

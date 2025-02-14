@@ -1,7 +1,7 @@
 #pragma once
 #include "AP_Proximity_config.h"
 
-#if AP_PROXIMITY_MR72_ENABLED
+#if AP_PROXIMITY_MR72_ENABLED || AP_PROXIMITY_HEXSOONRADAR_ENABLED
 
 #include "AP_Proximity.h"
 #include "AP_Proximity_Backend.h"
@@ -17,7 +17,13 @@ class AP_Proximity_MR72_CAN : public AP_Proximity_Backend {
 public:
     friend class MR72_MultiCAN;
 
-    AP_Proximity_MR72_CAN(AP_Proximity &_frontend, AP_Proximity::Proximity_State &_state, AP_Proximity_Params& _params);
+    // manufacturers that may use this same driver
+    enum class Manufacturer : uint8_t {
+        NanoRadar = 0,
+        Hexsoon = 1
+    };
+
+    AP_Proximity_MR72_CAN(AP_Proximity &_frontend, AP_Proximity::Proximity_State &_state, AP_Proximity_Params& _params, Manufacturer manufacture);
 
     void update() override;
 
