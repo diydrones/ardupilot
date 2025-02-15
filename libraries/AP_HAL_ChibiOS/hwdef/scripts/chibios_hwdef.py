@@ -15,7 +15,9 @@ import shlex
 import pickle
 import re
 import shutil
-import filecmp
+
+sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../../../libraries/AP_HAL/hwdef/scripts'))
+import hwdef  # noqa:E402
 
 
 class ChibiOSHWDefIncludeNotFoundException(Exception):
@@ -24,7 +26,7 @@ class ChibiOSHWDefIncludeNotFoundException(Exception):
         self.includer = includer
 
 
-class ChibiOSHWDef(object):
+class ChibiOSHWDef(hwdef.HWDef):
 
     # output variables for each pin
     f4f7_vtypes = ['MODER', 'OTYPER', 'OSPEEDR', 'PUPDR', 'ODR', 'AFRL', 'AFRH']
@@ -32,12 +34,10 @@ class ChibiOSHWDef(object):
     af_labels = ['USART', 'UART', 'SPI', 'I2C', 'SDIO', 'SDMMC', 'OTG', 'JT', 'TIM', 'CAN', 'QUADSPI', 'OCTOSPI', 'ETH', 'MCO']
 
     def __init__(self, quiet=False, bootloader=False, signed_fw=False, outdir=None, hwdef=[], default_params_filepath=None):
-        self.outdir = outdir
-        self.hwdef = hwdef
+        super(ChibiOSHWDef, self).__init__(quiet=quiet, outdir=outdir, hwdef=hwdef)
         self.bootloader = bootloader
         self.signed_fw = signed_fw
         self.default_params_filepath = default_params_filepath
-        self.quiet = quiet
         self.have_defaults_file = False
 
         # if true then parameters will be appended in special apj-tool
@@ -66,9 +66,6 @@ class ChibiOSHWDef(object):
         self.ports = self.pincount.keys()
 
         self.portmap = {}
-
-        # dictionary of all config lines, indexed by first word
-        self.config = {}
 
         # alternate pin mappings
         self.altmap = {}
@@ -103,12 +100,6 @@ class ChibiOSHWDef(object):
         # list of WSPI devices
         self.wspi_list = []
 
-        # all config lines in order
-        self.alllines = []
-
-        # allow for extra env vars
-        self.env_vars = {}
-
         # build flags for ChibiOS makefiles
         self.build_flags = []
 
@@ -121,9 +112,6 @@ class ChibiOSHWDef(object):
         # dataflash config
         self.dataflash_list = []
 
-        # output lines:
-        self.all_lines = []
-
         self.dma_exclude_pattern = []
 
         self.mcu_type = None
@@ -132,27 +120,8 @@ class ChibiOSHWDef(object):
         # list of device patterns that can't be shared
         self.dma_noshare = []
 
-        # integer defines
-        self.intdefines = {}
-
         # list of shared up timers
         self.shared_up = []
-
-        # boolean indicating whether we have read and processed self.hwdef
-        self.processed_hwdefs = False
-
-    def is_int(self, str):
-        '''check if a string is an integer'''
-        try:
-            int(str)
-        except Exception:
-            return False
-        return True
-
-    def error(self, str):
-        '''show an error and exit'''
-        print("Error: " + str)
-        sys.exit(1)
 
     def get_mcu_lib(self, mcu):
         '''get library file for the chosen MCU'''
@@ -855,20 +824,6 @@ class ChibiOSHWDef(object):
             offset += pages[i]
         return offset
 
-    def load_file_with_include(self, fname):
-        '''load a file as an array of lines, processing any include lines'''
-        lines = open(fname, 'r').readlines()
-        ret = []
-        for line in lines:
-            if line.startswith("include"):
-                a = shlex.split(line)
-                if len(a) > 1 and a[0] == "include":
-                    fname2 = os.path.relpath(os.path.join(os.path.dirname(fname), a[1]))
-                    ret.extend(self.load_file_with_include(fname2))
-                    continue
-            ret.append(line)
-        return ret
-
     def get_storage_flash_page(self):
         '''get STORAGE_FLASH_PAGE either from this hwdef or from hwdef.dat
            in the same directory if this is a bootloader
@@ -905,27 +860,6 @@ class ChibiOSHWDef(object):
             self.error("HAL_STORAGE_SIZE too large %u %u" % (storage_size, page_size))
         if page_size == 16384 and storage_size > 15360:
             self.error("HAL_STORAGE_SIZE invalid, needs to be 15360")
-
-    def get_numeric_board_id(self):
-        '''return a numeric board ID, which may require mapping a string to a
-        number via board_list.txt'''
-        some_id = self.get_config('APJ_BOARD_ID')
-        if some_id.isnumeric():
-            return some_id
-
-        board_types_filename = "board_types.txt"
-        topdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../../..')
-        board_types_dirpath = os.path.join(topdir, "Tools", "AP_Bootloader")
-        board_types_filepath = os.path.join(board_types_dirpath, board_types_filename)
-        for line in open(board_types_filepath, 'r'):
-            m = re.match(r"(?P<name>[-\w]+)\s+(?P<board_id>\d+)", line)
-            if m is None:
-                continue
-            if m.group('name') == some_id:
-                return m.group('board_id')
-
-        raise ValueError("Unable to map (%s) to a board ID using %s" %
-                         (some_id, board_types_filepath))
 
     def enable_networking(self, f):
         f.write('''
@@ -1762,8 +1696,6 @@ INCLUDE common.ld
                     dev[i] = self.parse_spi_device(dev[i])
                 elif dev[i].startswith("I2C:"):
                     (wrapper, dev[i]) = self.parse_i2c_device(dev[i])
-                    if dev[i].startswith('hal.i2c_mgr'):
-                        dev[i] = 'std::move(%s)' % dev[i]
             n = len(devlist)+1
             devlist.append('HAL_BARO_PROBE%u' % n)
             args = ['*this'] + dev[1:]
@@ -1791,8 +1723,6 @@ INCLUDE common.ld
                     dev[i] = self.parse_spi_device(dev[i])
                 elif dev[i].startswith("I2C:"):
                     (wrapper, dev[i]) = self.parse_i2c_device(dev[i])
-                    if dev[i].startswith('hal.i2c_mgr'):
-                        dev[i] = 'std::move(%s)' % dev[i]
             n = len(devlist)+1
             devlist.append('HAL_AIRSPEED_PROBE%u' % n)
             args = ['*this', str(idx)] + dev[1:]
@@ -2620,41 +2550,14 @@ Please run: Tools/scripts/build_bootloaders.py %s
         f.write('}\n\n')
 
     def write_all_lines(self, hwdat):
-        f = open(hwdat, 'w')
-        f.write('\n'.join(self.all_lines))
-        f.close()
+        super(ChibiOSHWDef, self).write_all_lines(hwdat)
+
         if not self.is_periph_fw() and not os.getenv("NO_ROMFS_HWDEF", False):
             self.romfs["hwdef.dat"] = hwdat
 
-    def write_defaulting_define(self, f, name, value):
-        f.write(f"#ifndef {name}\n")
-        f.write(f"#define {name} {value}\n")
-        f.write("#endif\n")
-
-    def write_define(self, f, name, value):
-        f.write(f"#define {name} {value}\n")
-
-    def write_hwdef_header(self, outfilename):
+    def write_hwdef_header_content(self, f):
         '''write hwdef header file'''
-        self.progress("Writing hwdef setup in %s" % outfilename)
-        tmpfile = outfilename + ".tmp"
-        f = open(tmpfile, 'w')
-
-        f.write('''/*
- generated hardware definitions from hwdef.dat - DO NOT EDIT
-*/
-
-#pragma once
-
-#ifndef TRUE
-#define TRUE 1
-#endif
-
-#ifndef FALSE
-#define FALSE 0
-#endif
-
-#define MHZ (1000U*1000U)
+        f.write('''#define MHZ (1000U*1000U)
 #define KHZ (1000U)
 
 ''')
@@ -2835,21 +2738,6 @@ Please run: Tools/scripts/build_bootloaders.py %s
         self.add_bootloader_defaults(f)
         self.add_iomcu_firmware_defaults(f)
         self.add_normal_firmware_defaults(f)
-
-        f.close()
-        # see if we ended up with the same file, on an unnecessary reconfigure
-        try:
-            if filecmp.cmp(outfilename, tmpfile):
-                self.progress("No change in hwdef.h")
-                os.unlink(tmpfile)
-                return
-        except Exception:
-            pass
-        try:
-            os.unlink(outfilename)
-        except Exception:
-            pass
-        os.rename(tmpfile, outfilename)
 
     def build_peripheral_list(self):
         '''build a list of peripherals for DMA resolver to work on'''
@@ -3135,69 +3023,54 @@ Please run: Tools/scripts/build_bootloaders.py %s
             self.romfs_wildcard(a[1])
         elif a[0] == 'ROMFS_DIRECTORY':
             self.romfs_add_dir([a[1]], relative_to_base=True)
-        elif a[0] == 'undef':
-            for u in a[1:]:
-                self.progress("Removing %s" % u)
-                self.config.pop(u, '')
-                self.bytype.pop(u, '')
-                self.bylabel.pop(u, '')
-                self.alttype.pop(u, '')
-                self.altlabel.pop(u, '')
-                self.intdefines.pop(u, '')
-                for dev in self.spidev:
-                    if u == dev[0]:
-                        self.spidev.remove(dev)
-                # also remove all occurences of defines in previous lines if any
-                for line in self.alllines[:]:
-                    if line.startswith('define') and u == line.split()[1] or line.startswith('STM32_') and u == line.split()[0]:  # noqa
-                        self.alllines.remove(line)
-                newpins = []
-                for pin in self.allpins:
-                    if pin.type == u or pin.label == u or pin.portpin == u:
-                        if pin.label is not None:
-                            self.bylabel.pop(pin.label, '')
-                        self.portmap[pin.port][pin.pin] = self.generic_pin(pin.port, pin.pin, None, 'INPUT', [], self.mcu_type, self.mcu_series, self.get_ADC1_chan, self.get_ADC2_chan, self.get_ADC3_chan, self.af_labels)  # noqa
-                        continue
-                    newpins.append(pin)
-                self.allpins = newpins
-                if u == 'IMU':
-                    self.imu_list = []
-                if u == 'COMPASS':
-                    self.compass_list = []
-                if u == 'BARO':
-                    self.baro_list = []
-                if u == 'DATAFLASH':
-                    self.dataflash_list = []
-                if u == 'AIRSPEED':
-                    self.airspeed_list = []
-                if u == 'ROMFS':
-                    self.romfs = {}
-        elif a[0] == 'env':
-            self.progress("Adding environment %s" % ' '.join(a[1:]))
-            if len(a[1:]) < 2:
-                self.error("Bad env line for %s" % a[0])
-            name = a[1]
-            value = ' '.join(a[2:])
-            if name == 'AP_PERIPH' and value != "1":
-                raise ValueError("AP_PERIPH may only have value 1")
-            self.env_vars[name] = value
-        elif a[0] == 'define':
-            # extract numerical defines for processing by other parts of the script
-            result = re.match(r'define\s*([A-Z_0-9]+)\s+([0-9]+)', line)
-            if result:
-                (name, intvalue) = (result.group(1), int(result.group(2)))
-                if name in self.intdefines and self.intdefines[name] == intvalue:
-                    msg = f"{name} already in defines with same value"
-                    if depth == 0:
-                        print(msg)
-                        # raise ValueError(msg)
+        else:
+            super(ChibiOSHWDef, self).process_line(line, depth)
 
-                self.intdefines[name] = intvalue
+    def process_line_undef(self, line, depth, a):
+        for u in a[1:]:
+            self.progress("Removing %s" % u)
+            self.bytype.pop(u, '')
+            self.bylabel.pop(u, '')
+            self.alttype.pop(u, '')
+            self.altlabel.pop(u, '')
+            for dev in self.spidev:
+                if u == dev[0]:
+                    self.spidev.remove(dev)
+            # also remove all occurences of defines in previous lines if any
+            for line in self.alllines[:]:
+                if line.startswith('STM32_') and u == line.split()[0]:
+                    self.alllines.remove(line)
+            newpins = []
+            for pin in self.allpins:
+                if pin.type == u or pin.label == u or pin.portpin == u:
+                    if pin.label is not None:
+                        self.bylabel.pop(pin.label, '')
+                    self.portmap[pin.port][pin.pin] = self.generic_pin(pin.port, pin.pin, None, 'INPUT', [], self.mcu_type, self.mcu_series, self.get_ADC1_chan, self.get_ADC2_chan, self.get_ADC3_chan, self.af_labels)  # noqa
+                    continue
+                newpins.append(pin)
+            self.allpins = newpins
+            if u == 'IMU':
+                self.imu_list = []
+            if u == 'COMPASS':
+                self.compass_list = []
+            if u == 'BARO':
+                self.baro_list = []
+            if u == 'DATAFLASH':
+                self.dataflash_list = []
+            if u == 'AIRSPEED':
+                self.airspeed_list = []
+            if u == 'ROMFS':
+                self.romfs = {}
 
-    def progress(self, message):
-        if self.quiet:
-            return
-        print(message)
+        super(ChibiOSHWDef, self).process_line_undef(line, depth, a)
+
+    def process_line_env(self, line, depth, a):
+        name = a[1]
+        value = ' '.join(a[2:])
+        if name == 'AP_PERIPH' and value != "1":
+            raise ValueError("AP_PERIPH may only have value 1")
+
+        super(ChibiOSHWDef, self).process_line_env(line, depth, a)
 
     def process_file(self, filename, depth=0):
         '''process a hwdef.dat file'''
@@ -3292,8 +3165,8 @@ Please run: Tools/scripts/build_bootloaders.py %s
         will still return True.  Also can't "undef" AP_PERIPH - if we
         ever see the string we return true.
         '''
-        for hwdef in self.hwdef:
-            if self.is_periph_fw_unprocessed_file(hwdef):
+        for xhwdef in self.hwdef:
+            if self.is_periph_fw_unprocessed_file(xhwdef):
                 return True
         return False
 
@@ -3346,11 +3219,6 @@ Please run: Tools/scripts/build_bootloaders.py %s
 
         self.romfs_add('defaults.parm', filepath)
         self.have_defaults_file = True
-
-    def process_hwdefs(self):
-        for fname in self.hwdef:
-            self.process_file(fname)
-        self.processed_hwdefs = True
 
     def run(self):
         # process input file
