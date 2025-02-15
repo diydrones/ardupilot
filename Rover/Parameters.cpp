@@ -229,10 +229,6 @@ const AP_Param::Info Rover::var_info[] = {
     GOBJECT(relay,                  "RELAY", AP_Relay),
 #endif
 
-    // @Group: RCMAP_
-    // @Path: ../libraries/AP_RCMapper/AP_RCMapper.cpp
-    GOBJECT(rcmap,                 "RCMAP_",         RCMapper),
-
     // @Group: SR0_
     // @Path: GCS_MAVLink_Rover.cpp
     GOBJECTN(_gcs.chan_parameters[0], gcs0,        "SR0_",     GCS_MAVLINK_Parameters),
@@ -931,4 +927,8 @@ void Rover::load_parameters(void)
 
     AP_Param::convert_toplevel_objects(toplevel_conversions, ARRAY_SIZE(toplevel_conversions));
 
+    // PARAMETER_CONVERSION - Added: Feb-2024 for Rover-4.6
+#if AP_RC_CHANNEL_ENABLED
+    rc().convert_rcmap_parameters(Parameters::k_param_rcmap_old);
+#endif
 }

@@ -220,7 +220,7 @@ public:
         k_param_rpm_sensor = 232, // Disabled
 
         // RC_Mapper Library
-        k_param_rcmap, // Disabled
+        k_param_rcmap_old, // Disabled
 
         k_param_gcs4,
         k_param_gcs5,
